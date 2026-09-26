@@ -1,11 +1,14 @@
 {
   "version": 2,
-  "functions": {
-    "serve.py": {
-      "runtime": "python@3.12",
-      "maxDuration": 15
+  "builds": [
+    {
+      "src": "serve.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "15mb"
+      }
     }
-  },
+  ],
   "routes": [
     {
       "src": "/(.*)",
