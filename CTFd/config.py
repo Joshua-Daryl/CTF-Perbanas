@@ -67,20 +67,19 @@ def empty_str_cast(value, default=None):
 
 
 def gen_secret_key():
-    # Attempt to read the secret from the secret file
-    # This will fail if the secret has not been written
-    try:
-        with open(".ctfd_secret_key", "rb") as secret:
-            key = secret.read()
-    except OSError:
-        key = None
+    # Ambil dari Environment Variable Vercel atau generate acak di memory (tanpa tulis ke disk)
+    key = os.getenv("SECRET_KEY")
+    if not key:
+        try:
+            with open("/tmp/.ctfd_secret_key", "rb") as secret:
+                key = secret.read()
+        except OSError:
+            key = None
 
     if not key:
         key = os.urandom(64)
-        # Attempt to write the secret file
-        # This will fail if the filesystem is read-only
         try:
-            with open(".ctfd_secret_key", "wb") as secret:
+            with open("/tmp/.ctfd_secret_key", "wb") as secret:
                 secret.write(key)
                 secret.flush()
         except OSError:
@@ -112,8 +111,8 @@ class ServerConfig(object):
                 database=empty_str_cast(config_ini["server"]["DATABASE_NAME"]) or "ctfd",
             ))
         else:
-            # default to local SQLite DB
-            DATABASE_URL = f"sqlite:///{os.path.dirname(os.path.abspath(__file__))}/ctfd.db"
+            # default to SQLite DB di folder /tmp agar tidak Read-Only
+            DATABASE_URL = f"sqlite:////tmp/ctfd.db"
 
     REDIS_URL: str = empty_str_cast(config_ini["server"]["REDIS_URL"])
 
@@ -139,12 +138,10 @@ class ServerConfig(object):
     if CACHE_REDIS_URL:
         CACHE_TYPE: str = "redis"
     else:
-        CACHE_TYPE: str = "filesystem"
-        CACHE_DIR: str = os.path.join(
-            os.path.dirname(__file__), os.pardir, ".data", "filesystem_cache"
-        )
-        # Override the threshold of cached values on the filesystem. The default is 500. Don't change unless you know what you're doing.
-        CACHE_THRESHOLD: int = 0
+        # Menggunakan SimpleCache (Memory) & fallback /tmp agar kompatibel dengan Vercel
+        CACHE_TYPE: str = os.getenv("CACHE_TYPE", "SimpleCache")
+        CACHE_DIR: str = os.getenv("CACHE_DIR", "/tmp/.data")
+        CACHE_THRESHOLD: int = 500
 
     # === SECURITY ===
     SESSION_COOKIE_HTTPONLY: bool = config_ini["security"].getboolean("SESSION_COOKIE_HTTPONLY", fallback=True)
@@ -164,20 +161,8 @@ class ServerConfig(object):
             h.strip() for h in empty_str_cast(config_ini["security"].get("TRUSTED_HOSTS")).split(",")
         ]
 
-    """
-    TRUSTED_PROXIES:
-    Defines a set of regular expressions used for finding a user's IP address if the CTFd instance
-    is behind a proxy. If you are running a CTF and users are on the same network as you, you may choose to remove
-    some proxies from the list.
-
-    CTFd only uses IP addresses for cursory tracking purposes. It is ill-advised to do anything complicated based
-    solely on IP addresses unless you know what you are doing.
-    """
     TRUSTED_PROXIES = [
         r"^127\.0\.0\.1$",
-        # Remove the following proxies if you do not trust the local network
-        # For example if you are running a CTF on your laptop and the teams are
-        # all on the same network
         r"^::1$",
         r"^fc00:",
         r"^10\.",
@@ -213,14 +198,14 @@ class ServerConfig(object):
 
     # === LOGS ===
     LOG_FOLDER: str = empty_str_cast(config_ini["logs"]["LOG_FOLDER"]) \
-        or os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        or "/tmp/logs"
 
     # === UPLOADS ===
     UPLOAD_PROVIDER: str = empty_str_cast(config_ini["uploads"]["UPLOAD_PROVIDER"]) \
         or "filesystem"
 
     UPLOAD_FOLDER: str = empty_str_cast(config_ini["uploads"]["UPLOAD_FOLDER"]) \
-        or os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+        or "/tmp/uploads"
 
     if UPLOAD_PROVIDER == "s3":
         AWS_ACCESS_KEY_ID: str = empty_str_cast(config_ini["uploads"]["AWS_ACCESS_KEY_ID"])
@@ -275,8 +260,8 @@ class ServerConfig(object):
 
     if DATABASE_URL.startswith("sqlite") is False:
         SQLALCHEMY_ENGINE_OPTIONS = {
-            "max_overflow": int(empty_str_cast(config_ini["optional"]["SQLALCHEMY_MAX_OVERFLOW"], default=20)),  # noqa: E131
-            "pool_pre_ping": empty_str_cast(config_ini["optional"]["SQLALCHEMY_POOL_PRE_PING"], default=True),  # noqa: E131
+            "max_overflow": int(empty_str_cast(config_ini["optional"]["SQLALCHEMY_MAX_OVERFLOW"], default=20)),
+            "pool_pre_ping": empty_str_cast(config_ini["optional"]["SQLALCHEMY_POOL_PRE_PING"], default=True),
         }
 
     # === OAUTH ===
@@ -298,11 +283,6 @@ class ServerConfig(object):
     else:
         PRESET_CONFIGS = {}
 
-    # === EXTRA ===
-    # Since the configurations in section "[extra]" will be loaded later, it is not necessary to declare them here.
-    # However, if you want to have some processing or checking on the value, you can still declare it here just like other configurations.
-# fmt: on
-
 
 class TestingConfig(ServerConfig):
     SECRET_KEY = "AAAAAAAAAAAAAAAAAAAA"
@@ -314,15 +294,13 @@ class TestingConfig(ServerConfig):
     SERVER_NAME = "localhost"
     UPDATE_CHECK = False
     REDIS_URL = None
-    CACHE_TYPE = "simple"
+    CACHE_TYPE = "SimpleCache"
     CACHE_THRESHOLD = 500
     SAFE_MODE = True
 
 
-# Actually initialize ServerConfig to allow us to add more attributes on
 Config = ServerConfig()
 for k, v in config_ini.items("extra"):
-    # We should only add the values that are not yet loaded in ServerConfig.
     if hasattr(Config, k):
         raise ValueError(
             f"Built-in Config {k} should not be defined in the [extra] section of config.ini"
