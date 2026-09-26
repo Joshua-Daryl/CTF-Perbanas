@@ -1,3 +1,12 @@
+import os
+import sys
+
+# 1. Paksa Override Folder Read-Write ke /tmp untuk Vercel Serverless (Mencegah Errno 30)
+os.environ["CACHE_TYPE"] = "FileSystemCache"
+os.environ["CACHE_DIR"] = "/tmp/.data"
+os.environ["UPLOAD_FOLDER"] = "/tmp/uploads"
+
+# 2. Ambil Argumen jika Dijalankan via CLI (Bypass argparse jika Di-import oleh Vercel)
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -8,16 +17,22 @@ parser.add_argument(
 parser.add_argument(
     "--disable-gevent",
     help="Disable importing gevent and monkey patching",
-    action="store_false",
+    action="store_true",  # Diubah agar gevent TIDAK aktif secara default di Vercel
 )
-args = parser.parse_args()
-if args.disable_gevent:
-    print(" * Importing gevent and monkey patching. Use --disable-gevent to disable.")
-    from gevent import monkey
 
-    monkey.patch_all()
+# Parse argumen tanpa crash saat di-import oleh serverless handler Vercel
+args, _ = parser.parse_known_args()
 
-# Import not at top of file to allow gevent to monkey patch uninterrupted
+# Disable gevent secara penuh di Vercel untuk mencegah RuntimeError greenlet
+if not os.environ.get("VERCEL") and not args.disable_gevent:
+    try:
+        print(" * Importing gevent and monkey patching. Use --disable-gevent to disable.")
+        from gevent import monkey
+        monkey.patch_all()
+    except Exception as e:
+        print(f" * Gevent monkey patching skipped: {e}")
+
+# 3. Import CTFd setelah environment & monkey patch disiapkan
 from CTFd import create_app
 
 app = create_app()
@@ -38,6 +53,6 @@ if args.profile:
 
     toolbar = DebugToolbarExtension()
     toolbar.init_app(app)
-    print(" * Flask profiling running at http://127.0.0.1:4000/flask-profiler/")
 
-app.run(debug=True, threaded=True, host="127.0.0.1", port=args.port)
+if __name__ == "__main__":
+    app.run(debug=True, threaded=True, host="127.0.0.1", port=args.port)
