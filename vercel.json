@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "serve.py",
-      "use": "@vercel/python"
+  "functions": {
+    "serve.py": {
+      "runtime": "python@3.12",
+      "maxDuration": 15
     }
-  ],
+  },
   "routes": [
     {
       "src": "/(.*)",
