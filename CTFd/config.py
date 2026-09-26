@@ -1,12 +1,22 @@
 import configparser
 import json
 import os
-from distutils.util import strtobool
 from typing import Union
 
 from sqlalchemy.engine.url import URL
 
 _FORCED_EXTRA_CONFIG_TYPES = {}
+
+
+def strtobool(val):
+    """Pengganti distutils.util.strtobool untuk Python 3.12+"""
+    val = str(val).lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return 1
+    elif val in ("n", "no", "f", "false", "off", "0"):
+        return 0
+    else:
+        raise ValueError(f"invalid truth value {val!r}")
 
 
 class EnvInterpolation(configparser.BasicInterpolation):
@@ -126,7 +136,6 @@ class ServerConfig(object):
     if REDIS_URL or REDIS_HOST is None:
         CACHE_REDIS_URL = REDIS_URL
     else:
-        # construct URL from individual variables
         CACHE_REDIS_URL = f"{REDIS_PROTOCOL}://"
         if REDIS_USER:
             CACHE_REDIS_URL += REDIS_USER
