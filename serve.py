@@ -2,7 +2,6 @@ import os
 import sys
 
 # Top-level import wajib agar terdeteksi Vercel AST parser
-import psycopg2
 import pg8000
 
 os.environ["CACHE_TYPE"] = "SimpleCache"
